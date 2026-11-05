@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Smart Fever Guardian – Final Version</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+:root{--bg:#f3f6fb;--cd:#fff;--tx:#14213d;--mu:#6b7a90;--ac:#2f7bf6;--ok:#1fa971;--wa:#f59e0b;--bad:#e5484d;--bd:#e3e9f2;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0d1420;--cd:#16202f;--tx:#e8eef7;--mu:#8fa0b8;--bd:#243146}}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.4 system-ui,-apple-system,sans-serif}
+#app{max-width:440px;margin:0 auto;padding:14px 14px 90px}
+h1{font-size:20px;margin:4px 0 2px}h2{font-size:16px;margin:0 0 8px}.mu{color:var(--mu);font-size:13px}
+.card{background:var(--cd);border:1px solid var(--bd);border-radius:16px;padding:14px;margin:10px 0}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.big{font-size:34px;font-weight:700;line-height:1}.u{font-size:14px;color:var(--mu);font-weight:400}
+.ok{color:var(--ok)}.wa{color:var(--wa)}.bad{color:var(--bad)}.pill{display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;background:var(--bd)}
+input:not([type=checkbox]),select{width:100%;padding:11px;border-radius:10px;border:1px solid var(--bd);background:var(--bg);color:var(--tx);font:inherit;margin:4px 0}
+input.e{border-color:var(--bad)}label{font-size:13px;color:var(--mu)}.err{color:var(--bad);font-size:13px;min-height:18px}
+button{font:inherit;border:0;border-radius:12px;padding:13px 14px;background:var(--ac);color:#fff;font-weight:600;cursor:pointer;width:100%;margin-top:8px}
+button.s{background:var(--bd);color:var(--tx)}button.r{background:var(--bad)}button.g{background:var(--ok)}
+nav{position:fixed;bottom:0;left:0;right:0;background:var(--cd);border-top:1px solid var(--bd);display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom,0px);z-index:10}
+nav div{display:flex;max-width:440px;width:100%}nav a{flex:1;text-align:center;padding:9px 0 8px;font-size:10px;color:var(--mu);cursor:pointer}nav a b{display:block;font-size:18px;font-weight:400}nav a.on{color:var(--ac)}
+.chk{display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--bd)}.chk input{width:20px;height:20px}
+.dots{display:flex;gap:6px;margin:6px 0 10px}.dots i{flex:1;height:5px;border-radius:3px;background:var(--bd)}.dots i.on{background:var(--ac)}
+.res{border-left:5px solid var(--ok)}.res.w{border-color:var(--wa)}.res.b{border-color:var(--bad)}
+.li{padding:8px 0;border-bottom:1px solid var(--bd);font-size:14px}.li:last-child{border:0}
+#toast{position:fixed;left:50%;top:14px;transform:translateX(-50%);padding:11px 16px;border-radius:12px;color:#fff;font-weight:600;font-size:14px;display:none;z-index:99;max-width:90%;text-align:center;box-shadow:0 4px 12px rgba(0,0,0,0.15)}
+pre{font-size:11px;overflow-x:auto;background:var(--bg);padding:8px;border-radius:8px;margin:6px 0 0}details summary{cursor:pointer;color:var(--ac);font-weight:600;padding:6px 0}
+.emg-step{display:flex;gap:12px;margin-bottom:12px;padding:12px;background:var(--bg);border-radius:12px;border-left:4px solid var(--bad)}
+.emg-step b{font-size:18px;color:var(--bad)}
+</style>
+</head>
+<body>
+<div id="toast"></div><div id="app"></div>
+<script>
+const $=s=>document.querySelector(s),H=36e5,fm=t=>new Date(t).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'}),fdt=t=>new Date(t).toLocaleDateString('en',{day:'numeric',month:'short'})+' '+fm(t);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const val=id=>($('#'+id)||{value:''}).value.trim();
+
+/* Database setup */
+const DK='sfg_v5',SK='sfg_sess';let db=null,user=null;try{db=JSON.parse(localStorage.getItem(DK))}catch(e){}
+const CT=new Set(['children','medications','growth']),uid=()=>Date.now()*1000+Math.floor(Math.random()*1000);
+const save=(sync=true)=>{try{localStorage.setItem(DK,JSON.stringify(db))}catch(e){}};
+const insert=(t,r)=>{r.id=uid();db[t].push(r);save(CT.has(t));return r};
+
+/* Auth */
+async function pw(sl,p){try{const k=await crypto.subtle.importKey('raw',new TextEncoder().encode(p),'PBKDF2',false,['deriveBits']);const b=await crypto.subtle.deriveBits({name:'PBKDF2',salt:new TextEncoder().encode(sl),iterations:100000,hash:'SHA-256'},k,256);return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}catch(e){return'f_fallback_hash'}}
+const salt=()=>Math.random().toString(36).slice(2,10);
+
+const kids=()=>db.children.filter(c=>c.user_id==user.id);
+const child=()=>kids().find(c=>c.id==ui.cid)||kids()[0]||null;
+const ageOf=c=>Math.floor((Date.now()-new Date(c.dob))/2629800000);
+const ageT=(c=child())=>ageOf(c)<24?ageOf(c)+' mo':(ageOf(c)/12).toFixed(1)+' y';
+function pick(id){ui.cid=id||(kids()[0]||{}).id||null;Object.assign(L,{t:36.9,sp:98,hr:116,hu:30,tg:36.9,sp_:0});ui.step=1;ui.eff=null}
+
+const DRUGS={par:{n:'Paracetamol',mgkg:15,per:120/5,max:60,gap:4,form:'syrup 120 mg/5 ml'},ibu:{n:'Ibuprofen',mgkg:10,per:100/5,max:30,gap:6,form:'suspension 100 mg/5 ml'}};
+const meds=cid=>db.medications.filter(m=>m.child_id==cid);
+function nextOk(k,cid){const l=meds(cid).filter(m=>m.drug==k).pop();return l?l.given_at+DRUGS[k].gap*H:0}
+function used24(k,cid,now){return meds(cid).filter(m=>m.drug==k&&now-m.given_at<24*H).reduce((a,m)=>a+m.mg,0)}
+
+function recommend(c,temp,spo2,sym,now=Date.now()){
+ const mo=ageOf(c),why=[],warn=[];
+ if(mo<3)return{status:'urgent',msg:'Babies under 3 months need a doctor immediately.'};
+ if(spo2<92)return{status:'urgent',msg:'Blood oxygen is below 92%. Call a doctor now.'};
+ let ibuOK=true;
+ const rules=[[mo<6,'Ibuprofen not advised under 6 mo'],[sym.vom,'Dehydration risk'],[sym.asth,'Asthma risk'],[sym.gi,'Stomach risk']];
+ rules.forEach(([f,t])=>{if(f){ibuOK=false;why.push(t)}});
+ let sp=60+(temp<38.5?15:0),si=ibuOK?50:-99;
+ if(temp>=39&&ibuOK){si+=25;why.push('Temp ≥ 39°C – ibuprofen lasts longer')}
+ let k=si>sp?'ibu':'par';
+ if(nextOk(k,c.id)>now){const o=k=='par'?'ibu':'par';if(ibuOK||o=='par'){why.unshift(DRUGS[k].n+' given recently');k=o}}
+ const d=DRUGS[k],nx=nextOk(k,c.id);
+ if(nx>now)return{status:'wait',drug:k,nextAt:nx,why:['Last dose too recent'],warn:['Wait for safety.']};
+ const mg=Math.round(c.weight*d.mgkg),left=Math.round(c.weight*d.max-used24(k,c.id,now));
+ if(left<mg)return{status:'wait',drug:k,nextAt:now+4*H,why:['Daily limit reached'],warn:['Call pediatrician.']};
+ return{status:'ok',drug:k,mg,ml:+(mg/d.per).toFixed(1),why,warn,left,conf:85,temp};
+}
+
+const L={t:36.9,sp:98,hr:116,hu:30,tg:36.9,sp_:0,n:0};
+function tick(){const c=user&&child();if(!c)return;
+ if(L.sp_>0){L.t=Math.min(L.t+.35,39.5);L.sp_--}else L.t+=(L.tg-L.t)*.1+(Math.random()-.5)*.04;
+ if(++L.n%5==0)insert('measurements',{child_id:c.id,ts:Date.now(),temp:+L.t.toFixed(2),spo2:L.sp,hr:L.hr,humidity:30});
+ if(ui.tab=='home'||ui.tab=='adv')render()}
+
+let ui={tab:'home',step:1,f:{w:'',t:'',sym:{}},res:null,err:{},eff:null,reg:false,af:{},cid:null,kf:{},edit:undefined,lf:{c:'all',d:'all'}};
+const toast=(m,c='#1fa971')=>{const e=$('#toast');e.textContent=m;e.style.background=c;e.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(()=>e.style.display='none',3000)};
+const go=t=>{if(t=='adv'&&!child()){toast('Add a child first','#f59e0b');t='kids'} ui.tab=t;ui.err={};render();scrollTo(0,0)};
+const fld=(e,l,id,t,v,k,x='')=>`<label>${l}</label><input id="${id}" type="${t}" ${x} value="${esc(v??'')}" class="${e[k]?'e':''}"><div class="err">${e[k]||''}</div>`;
+
+/* Export Feature */
+function exportTXT(){
+ const c=child(); if(!c) return;
+ const now=Date.now();
+ const m24=db.medications.filter(m=>m.child_id==c.id && now-m.given_at<24*H);
+ const v24=db.measurements.filter(m=>m.child_id==c.id && now-m.ts<24*H);
+ let out=`=== FEVER REPORT ===\nName: ${c.name} (${ageT(c)}, ${c.weight}kg)\nGenerated: ${new Date().toLocaleString()}\n\n`;
+ out+=`MEDICATIONS (Last 24h):\n`;
+ if(!m24.length) out+=`None\n`;
+ else m24.forEach(m=>out+=`- ${fdt(m.given_at)}: ${DRUGS[m.drug].n} ${m.mg}mg (${m.ml}ml)\n`);
+ out+=`\nLATEST VITALS:\n`;
+ v24.slice(-5).forEach(v=>out+=`- ${fm(v.ts)}: Temp ${v.temp}°C, SpO2 ${v.spo2}%, HR ${v.hr}\n`);
+ navigator.clipboard.writeText(out).then(()=>{
+   toast('TXT Report copied to clipboard! Paste in WhatsApp/Telegram.', '#2f7bf6');
+ }).catch(()=>{
+   alert("Clipboard blocked. Report:\n\n"+out);
+ });
+}
+
+/* Notifications Feature */
+function reqPush(){
+ if("Notification" in window){
+  Notification.requestPermission().then(p=>{
+   if(p==='granted') toast('Push notifications enabled!','#1fa971');
+   else toast('Notifications denied.','#f59e0b');
+  });
+ }
+}
+function schedPush(c, drug, nextTime){
+ if("Notification" in window && Notification.permission==="granted"){
+  const delay = nextTime - Date.now();
+  if(delay>0 && delay<24*H){
+   setTimeout(()=>{
+    new Notification("Fever Guardian", {body: `Time to check ${c.name}. Next safe dose of ${DRUGS[drug].n} is ready if needed.`, icon: "🌡️"});
+   }, delay);
+  }
+ }
+}
+
+function formatCountdown(ms){
+  if(ms<=0) return "Ready now";
+  const m = Math.ceil(ms/60000);
+  const h = Math.floor(m/60);
+  const rm = m%60;
+  return h>0 ? `${h}h ${rm}m` : `${rm} min`;
+}
+
+/* Home */
+function home(){const c0=child();
+if(!c0)return`<h1>Welcome</h1><div class="card"><b>No children yet</b><div class="mu">Add a child to start.</div></div><button onclick="go('kids');editK(null)">➕ Add child</button>`;
+const lm=meds(c0.id).pop(),nx=lm?lm.given_at+DRUGS[lm.drug].gap*H:0;
+const isWait = nx > Date.now();
+return`
+<div class="row"><select onchange="pick(+this.value);render()">${kids().map(k=>`<option value="${k.id}" ${k.id==c0.id?'selected':''}>${esc(k.name)}</option>`).join('')}</select></div>
+<div style="margin-top:8px"><h1>${esc(c0.name)}</h1><div class="mu">${ageT()} · ${c0.weight} kg</div></div>
+${L.t>38.5?`<div class="card" style="background:var(--bad);color:#fff;border:0"><b>🚨 Fever alert: ${L.t.toFixed(1)}°C</b><button style="background:#fff;color:var(--bad)" onclick="go('adv')">Get AI advice</button></div>`:''}
+<div class="card"><div class="row"><span class="mu">Temperature</span><span class="pill ${L.t>=37.5?'wa':'ok'}">${L.t>=37.5?'Elevated':'Normal'}</span></div><div class="big ${L.t>=37.5?'wa':'ok'}">${L.t.toFixed(1)}<span class="u"> °C</span></div></div>
+<div class="card">
+  <div class="row"><span class="mu">Medication Status</span>
+    ${isWait ? `<span class="pill wa">Wait ${formatCountdown(nx-Date.now())}</span>` : `<span class="pill ok">Safe to give</span>`}
+  </div>
+  <b style="display:block;margin-top:8px">${lm?(isWait?'Next safe dose at '+fm(nx):'Ready for next dose'):'No doses logged today'}</b>
+  ${isWait ? `<div class="mu" style="margin-top:4px;font-size:12px">Push notification scheduled. <a href="#" onclick="reqPush();return false;" style="color:var(--ac)">Enable pushes</a></div>` : ''}
+</div>
+<button onclick="go('adv')">🤖 AI Medication Advisor</button>
+<div class="card" style="margin-top:14px"><div class="mu">Simulation Tools</div><div class="g2"><button class="s" onclick="L.sp_=8;L.tg=39">🔥 Spike</button><button class="s" onclick="L.sp_=0;L.tg=36.9">❄ Cool</button></div></div>`}
+
+/* Advisor */
+function adv(){const s=ui.step,f=ui.f,e=ui.err,c0=child();
+if(s==1)return`<h1>Step 1: Check Vitals</h1><div class="card">${fld(e,'Weight (kg)','w','number',f.w||c0.weight,'w','step=".1"')}${fld(e,'Temp (°C)','t','number',f.t||L.t.toFixed(1),'t','step=".1"')}</div><button onclick="s1()">Next</button>`;
+if(s==2){const S=[['vom','Vomiting'],['asth','Asthma'],['gi','Stomach problems']];
+return`<h1>Step 2: Symptoms</h1><div class="card">${S.map(([k,l])=>`<label class="chk"><input type="checkbox" id="c_${k}" ${f.sym[k]?'checked':''}> <span>${l}</span></label>`).join('')}</div><button onclick="s2()">Get recommendation</button>`}
+if(s==3){const r=ui.res;
+if(r.status=='wait')return`<div class="card res w"><b class="wa">⏳ Wait until ${fm(r.nextAt)}</b><br><br>${r.why.join(', ')}</div><button class="s" onclick="ui.step=1;render()">Back</button>`;
+return`<div class="card res"><div class="big ok">Give ${r.ml} ml</div><b>${DRUGS[r.drug].n}</b> (${r.mg} mg)<br><br><div class="mu">Reason: ${r.why[0]}</div></div><button class="g" onclick="ui.step=4;render()">Confirm Dose</button>`}
+if(s==4){return`<h1>Save Dose</h1><div class="card">Save <b>${ui.res.ml} ml</b> of ${DRUGS[ui.res.drug].n} to log?</div><button class="g" onclick="confirmDose()">Save & Set Reminder</button>`}
+return`<div style="text-align:center;padding:16px 0"><div style="font-size:56px">✅</div><h1>Saved!</h1><div class="mu">Reminder scheduled.</div></div><button onclick="ui.step=1;go('home')">Back Home</button>`}
+
+function s1(){ui.f.w=$('#w').value; ui.f.t=$('#t').value; ui.step=2; render()}
+function s2(){['vom','asth','gi'].forEach(k=>ui.f.sym[k]=$('#c_'+k).checked);ui.res=recommend(child(),ui.f.t,L.sp,ui.f.sym);ui.step=3;render()}
+function confirmDose(){
+ const r=ui.res,c=child();
+ insert('medications',{child_id:c.id,drug:r.drug,mg:r.mg,ml:r.ml,given_at:Date.now(),temp_at:ui.f.t});
+ reqPush(); 
+ schedPush(c, r.drug, Date.now() + DRUGS[r.drug].gap*H);
+ ui.step=5; render();
+}
+
+/* Log & Export */
+function hist(){
+ const c=child();
+ const rows=db.medications.filter(m=>m.child_id==c?.id).reverse();
+return`<h1>Medication Log</h1>
+<button class="s" onclick="exportTXT()" style="margin-bottom:12px;background:var(--bd);color:var(--ac)">📤 Export 24h TXT Report</button>
+<div class="card">${rows.length?rows.map(m=>`<div class="li"><b>${DRUGS[m.drug].n} ${m.mg}mg</b> (${m.ml}ml)<div class="mu">${fdt(m.given_at)} · temp ${m.temp_at}°C</div></div>`).join(''):'<div class="mu">No doses found.</div>'}</div>`}
+
+/* Emergency SOS Checklist */
+function emgV(){
+return `<h1>🚨 Emergency Checklist</h1>
+<div class="mu" style="margin-bottom:12px">Follow these steps if fever is unmanageable or seizures occur.</div>
+<button class="r" onclick="window.location.href='tel:112'" style="font-size:18px;margin-bottom:16px;box-shadow: 0 4px 12px rgba(229, 72, 77, 0.3);">📞 Call Emergency (112 / 911)</button>
+
+<div class="card" style="padding:10px">
+  <h2 style="color:var(--bad)">Febrile Seizure Steps</h2>
+  <div class="emg-step"><b>1</b><div><b>Stay Calm & Time It</b><br><span class="mu">Note the exact start time. Most stop within 2-3 minutes.</span></div></div>
+  <div class="emg-step"><b>2</b><div><b>Protect from Injury</b><br><span class="mu">Place child on the floor on a soft surface. Move hard objects away.</span></div></div>
+  <div class="emg-step"><b>3</b><div><b>Recovery Position</b><br><span class="mu">Gently roll them onto their side to prevent choking on saliva.</span></div></div>
+  <div class="emg-step"><b>4</b><div><b>Do NOT Restrain</b><br><span class="mu">Do not hold them down. Do NOT put anything in their mouth.</span></div></div>
+</div>`}
+
+/* Kids/Login Base */
+function auth(){const r=ui.reg;
+return`<h1>🌡 Smart Fever Guardian</h1><div class="card"><label>Username</label><input id="au" value="demo"><label>Password</label><input id="ap" type="password" value="demo"></div><button onclick="doLogin()">Sign in</button>`}
+function doLogin(){
+ user=insert('users',{username:$('#au').value,id:uid()});
+ if(!kids().length) insert('children',{user_id:user.id,name:'Alikhan',dob:'2022-01-01',weight:12});
+ pick();render();
+}
+function kidsV(){return`<h1>Settings</h1><button class="s" onclick="user=null;render()">Log out</button>`}
+
+/* Render */
+function render(){if(!user){$('#app').innerHTML=auth();return}
+ const T=[['home','🏠','Home',home],['adv','🤖','Advisor',adv],['hist','💊','Log',hist],['emg','🚨','SOS',emgV],['kids','⚙️','Profile',kidsV]];
+ $('#app').innerHTML=T.find(x=>x[0]==ui.tab)[3]()+`<nav><div>${T.map(x=>`<a class="${ui.tab==x[0]?'on':''}" onclick="go('${x[0]}')"><b>${x[1]}</b>${x[2]}</a>`).join('')}</div></nav>`}
+
+(function init(){
+ if(!db)db={users:[],children:[],measurements:[],medications:[]};
+ render();setInterval(tick,1000);
+ setInterval(()=>{if(ui.tab=='home')render();}, 60000); // UI countdown refresh
+})();
+</script></body></html>
